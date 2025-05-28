@@ -1,15 +1,26 @@
-from django.urls import path
-from .views import CreateTopicView, FirstStepVoteView, FirstStepWinnersView, SecondStepVoteView, SecondStepWinnerView, \
-    select_first_step_winners, register_user
+
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import (
+    VotingSessionViewSet, TopicViewSet,
+    FirstStepViewSet, SecondStepViewSet,
+    FirstStepVoteViewSet, SecondStepVoteViewSet, RegisterUserView, UsersViewSet, FirstStepWinnersAPIView,
+    FinalWinnerAPIView
+)
+
+router = DefaultRouter()
+router.register('users', UsersViewSet)
+router.register('voting-sessions', VotingSessionViewSet)
+router.register('topics', TopicViewSet)
+router.register('first-step', FirstStepViewSet)
+router.register('second-step', SecondStepViewSet)
+router.register('first-step-votes', FirstStepVoteViewSet)
+router.register('second-step-votes', SecondStepVoteViewSet)
 
 urlpatterns = [
-
-    path('register/', register_user, name='register_user'),
-    path('create-topic/', CreateTopicView.as_view(), name='create-topic'),
-    path('first-vote/', FirstStepVoteView.as_view(), name='first-step-vote'),
-    path('first-winners/', FirstStepWinnersView.as_view(), name='first-step-winners'),
-    path('second-vote/', SecondStepVoteView.as_view(), name='second-step-vote'),
-    path('second-winner/', SecondStepWinnerView.as_view(), name='second-step-winner'),
-    path('first-step-winners/', select_first_step_winners),
+    path('', include(router.urls)),
+    path('register/', RegisterUserView.as_view(), name='register-user'),
+    path('first-step-winners/', FirstStepWinnersAPIView.as_view()),
+    path('final-winner/', FinalWinnerAPIView.as_view()),
 
 ]

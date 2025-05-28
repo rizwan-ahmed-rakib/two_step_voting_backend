@@ -1,155 +1,156 @@
 from django.contrib.auth.models import User
-from rest_framework import generics, status
-from rest_framework.decorators import permission_classes, api_view
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, IsAdminUser
-from .models import Topic, FirstStepVote, SecondStepVote, FirstStep, SecondStep
-from .serializers import TopicSerializer, FirstStepVoteSerializer, SecondStepVoteSerializer, RegisterSerializer
-from django.utils import timezone
 from django.db.models import Count
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework import viewsets, permissions, status
+from rest_framework.filters import SearchFilter, OrderingFilter
+from rest_framework.response import Response
 
-# নতুন টপিক যোগ করার API
-class CreateTopicView(generics.CreateAPIView):
-    serializer_class = TopicSerializer
-    permission_classes = [IsAuthenticated]
+from .models import (
+    VotingSession, Topic, FirstStep, SecondStep,
+    FirstStepVote, SecondStepVote
+)
+from .serializers import (
+    VotingSessionSerializer, TopicSerializer,
+    FirstStepSerializer, SecondStepSerializer,
+    FirstStepVoteSerializer, SecondStepVoteSerializer, UserSerializer
+)
+
+# Voting Session ViewSet
+class VotingSessionViewSet(viewsets.ModelViewSet):
+    queryset = VotingSession.objects.all().order_by('-created_at')
+    serializer_class = VotingSessionSerializer
+    # permission_classes = [permissions.IsAuthenticated]
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
 
-# প্রথম ধাপে ভোট দেয়ার API
-class FirstStepVoteView(generics.CreateAPIView):
+# Topic ViewSet
+class TopicViewSet(viewsets.ModelViewSet):
+    queryset = Topic.objects.all().order_by('-created_at')
+    serializer_class = TopicSerializer
+    # search_fields = ['session']
+    filterset_fields = ['session',]  # ✅ এই ফিল্ড অনুযায়ী ফিল্টার করা যাবে
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+
+
+    # permission_classes = [permissions.IsAuthenticated]
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+# First Step ViewSet
+class FirstStepViewSet(viewsets.ModelViewSet):
+    queryset = FirstStep.objects.all()
+    serializer_class = FirstStepSerializer
+    # permission_classes = [permissions.IsAdminUser]
+
+# Second Step ViewSet
+class SecondStepViewSet(viewsets.ModelViewSet):
+    queryset = SecondStep.objects.all()
+    serializer_class = SecondStepSerializer
+    # permission_classes = [permissions.IsAdminUser]
+
+# First Step Vote ViewSet
+class FirstStepVoteViewSet(viewsets.ModelViewSet):
+    queryset = FirstStepVote.objects.all()
     serializer_class = FirstStepVoteSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated]
 
-    def create(self, request, *args, **kwargs):
-        user = request.user
-        topic_id = request.data.get("topic")
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
 
-        # Check vote time
-        topic = Topic.objects.get(id=topic_id)
-        step = FirstStep.objects.filter(topic=topic, is_active=True).first()
-
-        if step and step.start_time <= timezone.now() <= step.end_time:
-            # User already voted 2 times?
-            vote_count = FirstStepVote.objects.filter(user=user).count()
-            if vote_count >= 2:
-                return Response({"message": "আপনি সর্বোচ্চ ২ বার ভোট দিতে পারবেন।"}, status=400)
-
-            vote = FirstStepVote.objects.create(user=user, topic=topic)
-            return Response({"message": "ভোট সফলভাবে গ্রহণ করা হয়েছে!"})
-        return Response({"message": "ভোট দেয়ার সময় শেষ হয়েছে!"}, status=400)
-
-# প্রথম ধাপের বিজয়ী (top 3 topic)
-class FirstStepWinnersView(generics.ListAPIView):
-    serializer_class = TopicSerializer
-
-    def get_queryset(self):
-        vote_counts = FirstStepVote.objects.values('topic').annotate(total=Count('id')).order_by('-total')[:3]
-        topic_ids = [v['topic'] for v in vote_counts]
-        return Topic.objects.filter(id__in=topic_ids)
-
-# দ্বিতীয় ধাপে ভোট দেয়ার API
-class SecondStepVoteView(generics.CreateAPIView):
+# Second Step Vote ViewSet
+class SecondStepVoteViewSet(viewsets.ModelViewSet):
+    queryset = SecondStepVote.objects.all()
     serializer_class = SecondStepVoteSerializer
-    permission_classes = [IsAuthenticated]
+    # permission_classes = [permissions.IsAuthenticated]
 
-    def create(self, request, *args, **kwargs):
-        user = request.user
-        topic_id = request.data.get("topic")
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
 
-        # Check vote time
-        topic = Topic.objects.get(id=topic_id)
-        step = SecondStep.objects.filter(is_active=True).first()
-
-        if step and step.start_time <= timezone.now() <= step.end_time:
-            # Already voted?
-            if SecondStepVote.objects.filter(user=user).exists():
-                return Response({"message": "আপনি ইতোমধ্যে ভোট দিয়েছেন!"}, status=400)
-
-            vote = SecondStepVote.objects.create(user=user, topic=topic)
-            return Response({"message": "দ্বিতীয় ধাপে ভোট সফল হয়েছে!"})
-        return Response({"message": "ভোট দেয়ার সময় শেষ!"}, status=400)
-
-# দ্বিতীয় ধাপের বিজয়ী দেখানোর API
-class SecondStepWinnerView(generics.RetrieveAPIView):
-    serializer_class = TopicSerializer
-
-    def get_object(self):
-        top = SecondStepVote.objects.values('topic') \
-            .annotate(total=Count('id')) \
-            .order_by('-total') \
-            .first()
-        return Topic.objects.get(id=top['topic']) if top else None
+class UsersViewSet(viewsets.ModelViewSet):
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+    # permission_classes = [permissions.IsAuthenticated]
 
 
 
 
 
-# ✅ বিজয়ী ৩ জনকে second step এ set করা
-# def select_first_step_winners():
-#     # ভোট গণনা
-#     results = FirstStepVote.objects.values('topic') \
-#         .annotate(total=Count('id')).order_by('-total')[:3]
-#
-#     # second step এর জন্য নির্বাচিত
-#     for r in results:
-#         topic = Topic.objects.get(id=r['topic'])
-#         topic.is_selected_for_second_step = True
-#         topic.save()
-@api_view(['POST'])
-@permission_classes([IsAdminUser])
-def select_first_step_winners(request):
-    results = FirstStepVote.objects.values('topic') \
-        .annotate(total=Count('id')).order_by('-total')[:3]
 
-    for r in results:
-        topic = Topic.objects.get(id=r['topic'])
-        topic.is_selected_for_second_step = True
-        topic.save()
+from rest_framework.views import APIView
 
-    return Response({"message": "First step winners selected successfully!"})
-# time validation function
-def is_vote_time_valid(step):
-    now = timezone.now()
-    return step.start_time <= now <= step.end_time
+class FirstStepWinnersAPIView(APIView):
+    def get(self, request):
+        session_id = request.query_params.get('session_id')
+        session_title = request.query_params.get('session_title')
 
+        # Session অনুসারে টপিক ফিল্টার করুন
+        topics = Topic.objects.all()
+        if session_id:
+            topics = topics.filter(session__id=session_id)
+        elif session_title:
+            topics = topics.filter(session__title=session_title)
 
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def vote_in_first_step(request):
-    user = request.user
-    topic_id = request.data.get("topic_id")
+        # ভোট গুনে শীর্ষ ৩টি টপিক নিন
+        winners = topics.annotate(vote_count=Count('firststepvote')).order_by('-vote_count')[:3]
 
-    # Time validation
-    vote_session = FirstStep.objects.first()  # or specific one
-    if not is_vote_time_valid(vote_session):
-        return Response({"error": "ভোটের সময় শেষ!"}, status=403)
-
-    # Vote save
-    FirstStepVote.objects.create(user=user, topic_id=topic_id)
-    return Response({"message": "✅ আপনার ভোট গ্রহণ করা হয়েছে!"})
+        data = [
+            {
+                'id': topic.id,
+                'session_id': topic.session.id,
+                'session': topic.session.title,
+                'title': topic.title,
+                'vote_count': topic.vote_count
+            }
+            for topic in winners
+        ]
+        return Response(data)
 
 
+class FinalWinnerAPIView(APIView):
+    def get(self, request):
+        session_id = request.query_params.get('session_id')
+        session_title = request.query_params.get('session_title')
 
-@api_view(['POST'])
-def register_user(request):
-    username = request.data.get('username')
-    password = request.data.get('password')
+        # Session অনুযায়ী Topic ফিল্টার করুন
+        topics = Topic.objects.all()
+        if session_id:
+            topics = topics.filter(session__id=session_id)
+        elif session_title:
+            topics = topics.filter(session__title=session_title)
 
-    if not username or not password:
-        return Response({'error': 'Username ও Password দিতে হবে'}, status=status.HTTP_400_BAD_REQUEST)
+        # প্রথম ধাপের ভোট অনুযায়ী টপ ৩ নির্বাচন
+        top_3 = topics.annotate(
+            vote_count=Count('firststepvote')
+        ).order_by('-vote_count')[:3]
 
-    if User.objects.filter(username=username).exists():
-        return Response({'error': 'এই Username আগে থেকেই আছে'}, status=status.HTTP_400_BAD_REQUEST)
+        # দ্বিতীয় ধাপের ভোট অনুযায়ী চূড়ান্ত বিজয়ী নির্ধারণ
+        final_winner = topics.filter(id__in=[t.id for t in top_3]).annotate(
+            vote_count=Count('secondstepvote')
+        ).order_by('-vote_count').first()
 
-    user = User.objects.create_user(username=username, password=password)
-    return Response({'message': '✅ User সফলভাবে তৈরি হয়েছে'})
+        if final_winner:
+            return Response({
+                'id': final_winner.id,
+                'session_id': final_winner.session.id,
+                'session': final_winner.session.title,
+                'title': final_winner.title,
+                'vote_count': final_winner.vote_count
+            })
+        else:
+            return Response({'message': 'কোনো ভোট পাওয়া যায়নি'}, status=404)
 
+class RegisterUserView(APIView):
+    def post(self, request):
+        username = request.data.get('username')
+        password = request.data.get('password')
 
-# @api_view(['POST'])
-# def register_user(request):
-#     serializer = RegisterSerializer(data=request.data)
-#     if serializer.is_valid():
-#         serializer.save()
-#         return Response({'message': '✅ User সফলভাবে তৈরি হয়েছে'}, status=status.HTTP_201_CREATED)
-#     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        if not username or not password:
+            return Response({'error': 'Username ও Password দিতে হবে'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if User.objects.filter(username=username).exists():
+            return Response({'error': 'এই Username আগে থেকেই আছে'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = User.objects.create_user(username=username, password=password)
+        return Response({'message': '✅ User সফলভাবে তৈরি হয়েছে'})
